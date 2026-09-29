@@ -1,8 +1,7 @@
-name: XReal3D - Android 3D Build
+name: XBattle 3D Android Build
 
 on:
   workflow_dispatch:
-
   push:
     branches:
       - main
@@ -12,30 +11,24 @@ permissions:
   contents: write
 
 concurrency:
-  group: xreal3d-build
+  group: xbattle-android
   cancel-in-progress: false
 
 env:
-  APP_NAME: XReal3D
-  PACKAGE_NAME: com.xreal3d.game
-
+  APP_NAME: XBattle
+  PACKAGE: com.xbattle.game
   ANDROID_API: "35"
-  ANDROID_BUILD_TOOLS: "35.0.0"
-  NDK_VERSION: "27.2.12479018"
-
-  RAYLIB_VERSION: "5.5"
+  BUILD_TOOLS: "35.0.0"
+  NDK_VERSION: "28.2.13676358"
+  RAYLIB_TAG: "5.5"
 
 jobs:
 
   prepare:
-    name: Prepare complete source structure
+    name: Prepare XBattle source tree
     runs-on: ubuntu-24.04
 
-    outputs:
-      changed: ${{ steps.gitcheck.outputs.changed }}
-
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -46,24 +39,24 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Create complete 3D source structure
-        shell: bash
+      # ============================================================
+      # DIRECTORY STRUCTURE
+      # ============================================================
+      - name: Create complete game directories
         run: |
-          set -e
-
           mkdir -p \
             .github/workflows \
             src \
-            assets/models/characters \
+            android/src/main/res/values \
+            assets/models/player \
             assets/models/zombies \
             assets/models/weapons \
             assets/models/vehicles \
             assets/models/buildings \
             assets/models/environment \
-            assets/textures/characters \
+            assets/textures/player \
             assets/textures/zombies \
             assets/textures/weapons \
-            assets/textures/vehicles \
             assets/textures/terrain \
             assets/textures/buildings \
             assets/textures/environment \
@@ -74,25 +67,21 @@ jobs:
             assets/audio/footsteps \
             assets/audio/environment \
             assets/shaders \
-            assets/fonts \
             assets/maps \
-            android/res/values
+            assets/fonts
 
-          touch assets/models/characters/.gitkeep
+          touch assets/models/player/.gitkeep
           touch assets/models/zombies/.gitkeep
           touch assets/models/weapons/.gitkeep
           touch assets/models/vehicles/.gitkeep
           touch assets/models/buildings/.gitkeep
           touch assets/models/environment/.gitkeep
-
-          touch assets/textures/characters/.gitkeep
+          touch assets/textures/player/.gitkeep
           touch assets/textures/zombies/.gitkeep
           touch assets/textures/weapons/.gitkeep
-          touch assets/textures/vehicles/.gitkeep
           touch assets/textures/terrain/.gitkeep
           touch assets/textures/buildings/.gitkeep
           touch assets/textures/environment/.gitkeep
-
           touch assets/materials/.gitkeep
           touch assets/animations/.gitkeep
           touch assets/audio/music/.gitkeep
@@ -100,34 +89,47 @@ jobs:
           touch assets/audio/footsteps/.gitkeep
           touch assets/audio/environment/.gitkeep
           touch assets/shaders/.gitkeep
-          touch assets/fonts/.gitkeep
           touch assets/maps/.gitkeep
+          touch assets/fonts/.gitkeep
 
-      - name: Create Android manifest
-        shell: bash
+      # ============================================================
+      # ANDROID MANIFEST (FIXED: package name and hasCode="false")
+      # ============================================================
+      - name: Create AndroidManifest.xml
         run: |
-          cat > android/AndroidManifest.xml <<'EOF'
+          mkdir -p android/src/main
+
+          cat > android/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest
+              xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.xbattle.game"
+              android:versionCode="1"
+              android:versionName="1.0">
 
               <uses-feature
                   android:glEsVersion="0x00020000"
                   android:required="true" />
 
-              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-feature
+                  android:name="android.hardware.touchscreen"
+                  android:required="true" />
+
+              <uses-permission
+                  android:name="android.permission.INTERNET" />
 
               <application
-                  android:theme="@style/AppTheme"
-                  android:label="XReal3D"
+                  android:theme="@style/XBattleTheme"
+                  android:label="XBattle"
+                  android:hasCode="false"
                   android:allowBackup="false"
                   android:supportsRtl="true">
 
                   <activity
                       android:name="android.app.NativeActivity"
-                      android:label="XReal3D"
+                      android:exported="true"
                       android:screenOrientation="landscape"
-                      android:configChanges="orientation|screenSize|keyboardHidden"
-                      android:exported="true">
+                      android:configChanges="orientation|screenSize|keyboardHidden">
 
                       <meta-data
                           android:name="android.app.lib_name"
@@ -145,23 +147,43 @@ jobs:
           </manifest>
           EOF
 
+      # ============================================================
+      # ANDROID RESOURCES
+      # ============================================================
       - name: Create Android resources
-        shell: bash
         run: |
-          cat > android/res/values/strings.xml <<'EOF'
+          mkdir -p android/src/main/res/values
+
+          cat > android/src/main/res/values/strings.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <string name="app_name">XReal3D</string>
+              <string name="app_name">XBattle</string>
           </resources>
           EOF
 
-      - name: Create CMake project
-        shell: bash
+          cat > android/src/main/res/values/styles.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style
+                  name="XBattleTheme"
+                  parent="@android:style/Theme.Material.Light.NoActionBar">
+                  <item name="android:windowFullscreen">true</item>
+                  <item name="android:windowActionModeOverlay">true</item>
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:colorAccent">#FFFFFF</item>
+              </style>
+          </resources>
+          EOF
+
+      # ============================================================
+      # CMAKE (FIXED: symbol retention -Wl,-u,ANativeActivity_onCreate)
+      # ============================================================
+      - name: Create CMakeLists.txt
         run: |
           cat > CMakeLists.txt <<'EOF'
           cmake_minimum_required(VERSION 3.22)
 
-          project(XReal3D LANGUAGES C CXX)
+          project(XBattle C CXX)
 
           set(CMAKE_CXX_STANDARD 17)
           set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -169,6 +191,8 @@ jobs:
           set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
           set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
           set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+          set(PLATFORM "Android" CACHE STRING "" FORCE)
+          set(GRAPHICS "GRAPHICS_API_OPENGL_ES2" CACHE STRING "" FORCE)
 
           include(FetchContent)
 
@@ -180,18 +204,51 @@ jobs:
 
           FetchContent_MakeAvailable(raylib)
 
-          file(GLOB_RECURSE GAME_SOURCES
+          file(
+              GLOB_RECURSE
+              GAME_SOURCES
               CONFIGURE_DEPENDS
-              "${CMAKE_SOURCE_DIR}/src/*.cpp"
+              ${CMAKE_SOURCE_DIR}/src/*.cpp
           )
 
-          add_library(main SHARED ${GAME_SOURCES})
-
-          target_include_directories(main PRIVATE
-              "${CMAKE_SOURCE_DIR}/src"
+          add_library(
+              main
+              SHARED
+              ${GAME_SOURCES}
           )
 
-          target_link_libraries(main
+          target_include_directories(
+              main
+              PRIVATE
+              ${CMAKE_SOURCE_DIR}/src
+          )
+
+          target_compile_definitions(
+              main
+              PRIVATE
+              PLATFORM_ANDROID
+              GRAPHICS_API_OPENGL_ES2
+          )
+
+          target_compile_options(
+              main
+              PRIVATE
+              -O3
+              -ffast-math
+              -fdata-sections
+              -ffunction-sections
+          )
+
+          target_link_options(
+              main
+              PRIVATE
+              -Wl,--gc-sections
+              -Wl,--strip-all
+              -Wl,-u,ANativeActivity_onCreate
+          )
+
+          target_link_libraries(
+              main
               raylib
               android
               log
@@ -199,187 +256,349 @@ jobs:
               GLESv2
               OpenSLES
               dl
+              m
           )
 
-          target_compile_definitions(main PRIVATE
-              PLATFORM_ANDROID
-              GRAPHICS_API_OPENGL_ES2
-          )
-
-          set_target_properties(main PROPERTIES
+          set_target_properties(
+              main
+              PROPERTIES
               OUTPUT_NAME "main"
-          )
-
-          # Copy game assets into Android asset storage.
-          add_custom_command(
-              TARGET main POST_BUILD
-              COMMAND ${CMAKE_COMMAND} -E make_directory
-              "${CMAKE_BINARY_DIR}/android_assets"
-          )
-
-          add_custom_command(
-              TARGET main POST_BUILD
-              COMMAND ${CMAKE_COMMAND} -E copy_directory
-              "${CMAKE_SOURCE_DIR}/assets"
-              "${CMAKE_BINARY_DIR}/android_assets/assets"
           )
           EOF
 
-      - name: Create initial 3D C++ source
-        shell: bash
+      # ============================================================
+      # COMPLETE C++ 3D GAME SOURCE (WITH MOBILE TOUCH CONTROLS)
+      # ============================================================
+      - name: Create main.cpp
         run: |
           cat > src/main.cpp <<'EOF'
           #include "raylib.h"
           #include "raymath.h"
 
+          #include <vector>
+          #include <cmath>
+          #include <cstdlib>
+
+          struct Player
+          {
+              Vector3 position{0.0f, 1.0f, 0.0f};
+              float yaw = 0.0f;
+              float health = 100.0f;
+              float speed = 6.0f;
+              int ammo = 45;
+              float shootCooldown = 0.0f;
+          };
+
+          struct Zombie
+          {
+              Vector3 position;
+              float health = 100.0f;
+              float speed = 1.35f;
+              bool alive = true;
+          };
+
+          struct Bullet
+          {
+              Vector3 position;
+              Vector3 velocity;
+              float life = 2.0f;
+              bool alive = true;
+          };
+
+          static Vector3 Forward(float yaw)
+          {
+              return Vector3{
+                  std::sinf(yaw),
+                  0.0f,
+                  std::cosf(yaw)
+              };
+          }
+
+          static Vector3 Right(float yaw)
+          {
+              return Vector3{
+                  std::cosf(yaw),
+                  0.0f,
+                  -std::sinf(yaw)
+              };
+          }
+
+          static void SpawnZombies(std::vector<Zombie>& zombies)
+          {
+              zombies.clear();
+              for (int i = 0; i < 14; ++i)
+              {
+                  float angle = ((float)i / 14.0f) * PI * 2.0f;
+                  float radius = 14.0f + (float)(i % 4) * 4.5f;
+
+                  Zombie z;
+                  z.position = {
+                      std::cosf(angle) * radius,
+                      1.0f,
+                      std::sinf(angle) * radius
+                  };
+                  zombies.push_back(z);
+              }
+          }
+
+          static void DrawWorld()
+          {
+              DrawPlane(Vector3{0, 0, 0}, Vector2{140, 140}, Color{68, 98, 64, 255});
+              DrawCube(Vector3{0, 0.02f, 0}, 8, 0.05f, 140, Color{60, 60, 60, 255});
+
+              for (int x = -30; x <= 30; x += 20)
+              {
+                  for (int z = -30; z <= 30; z += 20)
+                  {
+                      if (x == 0 || z == 0) continue;
+                      Vector3 p{(float)x, 2.0f, (float)z};
+                      DrawCube(p, 8, 4, 8, Color{145, 140, 125, 255});
+                      DrawCube(Vector3{p.x, 4.5f, p.z}, 8.5f, 1.0f, 8.5f, Color{90, 45, 35, 255});
+                  }
+              }
+
+              for (int i = 0; i < 35; ++i)
+              {
+                  float a = (float)i * 0.75f;
+                  float r = 24.0f + (float)(i % 7) * 4.5f;
+                  Vector3 p{std::cosf(a) * r, 2.0f, std::sinf(a) * r};
+
+                  DrawCylinder(p, 0.25f, 0.35f, 4.0f, 8, Color{75, 45, 30, 255});
+                  DrawSphere(Vector3{p.x, 5.0f, p.z}, 1.9f, Color{40, 95, 45, 255});
+              }
+          }
+
+          static void DrawPlayer(const Player& player)
+          {
+              DrawCapsule(
+                  Vector3{player.position.x, player.position.y - 0.5f, player.position.z},
+                  Vector3{player.position.x, player.position.y + 1.0f, player.position.z},
+                  0.45f, 8, 8, BLUE
+              );
+
+              Vector3 f = Forward(player.yaw);
+              DrawSphere(
+                  Vector3{player.position.x + f.x * 0.65f, player.position.y + 0.9f, player.position.z + f.z * 0.65f},
+                  0.35f, BEIGE
+              );
+          }
+
+          static void DrawZombie(const Zombie& zombie)
+          {
+              if (!zombie.alive) return;
+
+              DrawCapsule(
+                  Vector3{zombie.position.x, 0.5f, zombie.position.z},
+                  Vector3{zombie.position.x, 2.0f, zombie.position.z},
+                  0.45f, 8, 8, MAROON
+              );
+
+              DrawSphere(
+                  Vector3{zombie.position.x, 2.35f, zombie.position.z},
+                  0.42f, Color{100, 150, 100, 255}
+              );
+          }
+
+          static void Shoot(Player& player, std::vector<Bullet>& bullets)
+          {
+              if (player.shootCooldown > 0.0f || player.ammo <= 0) return;
+
+              Vector3 direction = Forward(player.yaw);
+              Bullet bullet;
+              bullet.position = Vector3Add(player.position, Vector3{direction.x * 1.0f, 0.3f, direction.z * 1.0f});
+              bullet.velocity = Vector3Scale(direction, 40.0f);
+              bullets.push_back(bullet);
+
+              player.ammo--;
+              player.shootCooldown = 0.15f;
+          }
+
           int main()
           {
-              SetConfigFlags(FLAG_MSAA_4X_HINT);
-
-              InitWindow(1280, 720, "XReal3D");
-
+              SetConfigFlags(FLAG_FULLSCREEN_MODE | FLAG_MSAA_4X_HINT);
+              InitWindow(1280, 720, "XBattle");
               SetTargetFPS(60);
 
+              Player player;
+              std::vector<Zombie> zombies;
+              std::vector<Bullet> bullets;
+              SpawnZombies(zombies);
+
               Camera3D camera{};
-              camera.position = Vector3{6.0f, 4.0f, 6.0f};
-              camera.target = Vector3{0.0f, 1.0f, 0.0f};
-              camera.up = Vector3{0.0f, 1.0f, 0.0f};
+              camera.position = {0, 5, 8};
+              camera.target = {0, 1, 0};
+              camera.up = {0, 1, 0};
               camera.fovy = 60.0f;
               camera.projection = CAMERA_PERSPECTIVE;
+
+              Vector2 prevRightTouchPos{0, 0};
+              bool rightTouchActive = false;
 
               while (!WindowShouldClose())
               {
                   float dt = GetFrameTime();
+                  int screenW = GetScreenWidth();
+                  int screenH = GetScreenHeight();
 
-                  if (IsKeyDown(KEY_W))
-                      camera.position.z -= 4.0f * dt;
+                  // Virtual Touch Areas
+                  Rectangle fireBtnRect{ (float)screenW - 140, (float)screenH - 140, 110, 110 };
+                  Vector2 moveInput{0.0f, 0.0f};
+                  bool fireTriggered = false;
 
-                  if (IsKeyDown(KEY_S))
-                      camera.position.z += 4.0f * dt;
+                  // Handle Multi-Touch (Mobile)
+                  int touchCount = GetTouchPointCount();
+                  bool currentRightTouchActive = false;
 
-                  if (IsKeyDown(KEY_A))
-                      camera.position.x -= 4.0f * dt;
+                  for (int i = 0; i < touchCount; ++i)
+                  {
+                      Vector2 tPos = GetTouchPosition(i);
 
-                  if (IsKeyDown(KEY_D))
-                      camera.position.x += 4.0f * dt;
+                      // Check Fire Button
+                      if (CheckCollisionPointRec(tPos, fireBtnRect))
+                      {
+                          fireTriggered = true;
+                          continue;
+                      }
 
+                      // Left screen: Movement D-Pad
+                      if (tPos.x < (float)screenW * 0.45f)
+                      {
+                          Vector2 center{ (float)screenW * 0.18f, (float)screenH * 0.72f };
+                          Vector2 delta = Vector2Subtract(tPos, center);
+                          if (Vector2Length(delta) > 15.0f)
+                          {
+                              moveInput = Vector2Normalize(delta);
+                          }
+                      }
+                      // Right screen: Camera Yaw (Aiming)
+                      else if (tPos.x >= (float)screenW * 0.45f)
+                      {
+                          currentRightTouchActive = true;
+                          if (rightTouchActive)
+                          {
+                              float deltaX = tPos.x - prevRightTouchPos.x;
+                              player.yaw += deltaX * 0.006f;
+                          }
+                          prevRightTouchPos = tPos;
+                      }
+                  }
+                  rightTouchActive = currentRightTouchActive;
+
+                  // Keyboard Controls fallback
+                  if (IsKeyDown(KEY_W)) moveInput.y -= 1.0f;
+                  if (IsKeyDown(KEY_S)) moveInput.y += 1.0f;
+                  if (IsKeyDown(KEY_A)) moveInput.x -= 1.0f;
+                  if (IsKeyDown(KEY_D)) moveInput.x += 1.0f;
+                  if (IsKeyDown(KEY_LEFT)) player.yaw -= 2.5f * dt;
+                  if (IsKeyDown(KEY_RIGHT)) player.yaw += 2.5f * dt;
+                  if (IsKeyDown(KEY_SPACE)) fireTriggered = true;
+
+                  // Apply Player Movement in Camera Direction
+                  if (Vector2Length(moveInput) > 0.1f)
+                  {
+                      Vector2 normInput = Vector2Normalize(moveInput);
+                      Vector3 fwd = Forward(player.yaw);
+                      Vector3 rgt = Right(player.yaw);
+
+                      Vector3 dir = Vector3Add(
+                          Vector3Scale(fwd, -normInput.y),
+                          Vector3Scale(rgt, normInput.x)
+                      );
+                      player.position = Vector3Add(player.position, Vector3Scale(dir, player.speed * dt));
+                  }
+
+                  // Shooting
+                  if (fireTriggered) Shoot(player, bullets);
+                  if (player.shootCooldown > 0) player.shootCooldown -= dt;
+
+                  // Bullets
+                  for (auto& bullet : bullets)
+                  {
+                      if (!bullet.alive) continue;
+                      bullet.position = Vector3Add(bullet.position, Vector3Scale(bullet.velocity, dt));
+                      bullet.life -= dt;
+                      if (bullet.life <= 0) bullet.alive = false;
+
+                      for (auto& zombie : zombies)
+                      {
+                          if (!zombie.alive) continue;
+                          if (Vector3Distance(bullet.position, zombie.position) < 1.25f)
+                          {
+                              zombie.health -= 50;
+                              bullet.alive = false;
+                              if (zombie.health <= 0) zombie.alive = false;
+                              break;
+                          }
+                      }
+                  }
+
+                  // Zombies AI
+                  for (auto& zombie : zombies)
+                  {
+                      if (!zombie.alive) continue;
+                      Vector3 direction = Vector3Subtract(player.position, zombie.position);
+                      float distance = Vector3Length(direction);
+
+                      if (distance > 1.4f)
+                      {
+                          direction = Vector3Normalize(direction);
+                          zombie.position = Vector3Add(zombie.position, Vector3Scale(direction, zombie.speed * dt));
+                      }
+                      else
+                      {
+                          player.health -= 12.0f * dt;
+                          if (player.health < 0) player.health = 0;
+                      }
+                  }
+
+                  // Third Person Camera Follow
+                  Vector3 forward = Forward(player.yaw);
+                  camera.position = Vector3Add(player.position, Vector3{-forward.x * 7.5f, 4.2f, -forward.z * 7.5f});
+                  camera.target = Vector3Add(player.position, Vector3{0, 1.2f, 0});
+
+                  // Render
                   BeginDrawing();
-
-                  ClearBackground(Color{105, 160, 210, 255});
+                  ClearBackground(Color{105, 165, 220, 255});
 
                   BeginMode3D(camera);
-
-                  DrawPlane(
-                      Vector3{0, 0, 0},
-                      Vector2{100, 100},
-                      Color{75, 100, 70, 255}
-                  );
-
-                  DrawCube(
-                      Vector3{0, 1, 0},
-                      2.0f,
-                      2.0f,
-                      2.0f,
-                      Color{150, 150, 150, 255}
-                  );
-
-                  DrawCubeWires(
-                      Vector3{0, 1, 0},
-                      2.0f,
-                      2.0f,
-                      2.0f,
-                      BLACK
-                  );
-
-                  DrawGrid(100, 1.0f);
-
+                  DrawWorld();
+                  for (const auto& zombie : zombies) DrawZombie(zombie);
+                  DrawPlayer(player);
+                  for (const auto& bullet : bullets)
+                  {
+                      if (bullet.alive) DrawSphere(bullet.position, 0.09f, YELLOW);
+                  }
                   EndMode3D();
 
-                  DrawText(
-                      "XReal3D - 3D C++ Engine",
-                      25,
-                      25,
-                      28,
-                      WHITE
-                  );
+                  // HUD
+                  DrawRectangle(20, 20, 230, 70, Fade(BLACK, 0.6f));
+                  DrawText("XBATTLE 3D", 35, 30, 22, WHITE);
+                  DrawText(TextFormat("HP: %d", (int)player.health), 35, 58, 20, (player.health > 30 ? GREEN : RED));
+                  DrawText(TextFormat("AMMO: %d", player.ammo), screenW - 160, 25, 22, YELLOW);
 
-                  DrawText(
-                      "W A S D - Camera",
-                      25,
-                      60,
-                      20,
-                      WHITE
-                  );
+                  // Mobile Touch On-Screen Controls
+                  Vector2 leftCenter{ (float)screenW * 0.18f, (float)screenH * 0.72f };
+                  DrawCircleV(leftCenter, 65.0f, Fade(WHITE, 0.15f));
+                  DrawCircleLines(leftCenter.x, leftCenter.y, 65.0f, Fade(WHITE, 0.4f));
+                  DrawCircleV(Vector2Add(leftCenter, Vector2Scale(moveInput, 40.0f)), 28.0f, Fade(SKYBLUE, 0.5f));
+
+                  // Fire Button
+                  DrawCircle(fireBtnRect.x + 55, fireBtnRect.y + 55, 50, Fade(MAROON, 0.7f));
+                  DrawCircleLines(fireBtnRect.x + 55, fireBtnRect.y + 55, 50, WHITE);
+                  DrawText("FIRE", fireBtnRect.x + 32, fireBtnRect.y + 44, 20, WHITE);
 
                   EndDrawing();
               }
 
               CloseWindow();
-
               return 0;
           }
           EOF
 
-      - name: Create project README
-        shell: bash
-        run: |
-          cat > README.md <<'EOF'
-          # XReal3D
-
-          Mobile-first C++ 3D game project.
-
-          ## Technology
-
-          - C++
-          - raylib
-          - Android NDK
-          - CMake
-          - OpenGL ES
-          - GitHub Actions
-
-          ## Assets
-
-          Put 3D models in:
-
-          `assets/models/`
-
-          Put textures in:
-
-          `assets/textures/`
-
-          Put shaders in:
-
-          `assets/shaders/`
-
-          Put animations in:
-
-          `assets/animations/`
-
-          Put sounds/music in:
-
-          `assets/audio/`
-
-          Put maps in:
-
-          `assets/maps/`
-
-          Recommended model format:
-
-          `.glb`
-
-          ## Android
-
-          Target ABI:
-
-          `arm64-v8a`
-
-          Build system:
-
-          GitHub Actions + Android NDK + CMake.
-          EOF
-
+      # ============================================================
+      # GITIGNORE
+      # ============================================================
       - name: Create gitignore
-        shell: bash
         run: |
           cat > .gitignore <<'EOF'
           build/
@@ -398,32 +617,30 @@ jobs:
           Makefile
           EOF
 
-      - name: Commit generated structure
-        id: gitcheck
-        shell: bash
+      # ============================================================
+      # COMMIT STRUCTURE (FIXED: [skip ci] to avoid recursive CI)
+      # ============================================================
+      - name: Commit generated files
         run: |
           git add .
-
           if git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No repository structure changes."
+            echo "No generated changes."
           else
-            git commit -m "Initialize complete 3D game source structure"
-            git push
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git commit -m "Initialize XBattle 3D Android project [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
           fi
 
-
   build:
-    name: Build Android 3D APK
+    name: Build XBattle APK
     needs: prepare
     runs-on: ubuntu-24.04
 
     steps:
-
-      - name: Checkout repository
+      # FIXED: checkout using ref_name to pull generated commit
+      - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref_name }}
           fetch-depth: 1
 
       - name: Setup Java 17
@@ -435,28 +652,38 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK
+      - name: Install Android SDK and NDK
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-
+          yes | sdkmanager --licenses || true
           sdkmanager \
             "platform-tools" \
             "platforms;android-${ANDROID_API}" \
-            "build-tools;${ANDROID_BUILD_TOOLS}" \
-            "cmake;3.22.1" \
-            "ndk;${NDK_VERSION}"
+            "build-tools;${BUILD_TOOLS}" \
+            "ndk;${NDK_VERSION}" \
+            "cmake;3.22.1"
 
-      - name: Verify Android toolchain
+      - name: Install Ninja Build
         run: |
-          java -version
-          cmake --version
-          ls "$ANDROID_HOME/ndk/${NDK_VERSION}"
-          adb version
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
 
-      - name: Configure CMake
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+      - name: Cache CMake and raylib
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache
+            build/android/_deps
+          key: xbattle-${{ runner.os }}-raylib-${{ env.RAYLIB_TAG }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            xbattle-${{ runner.os }}-raylib-${{ env.RAYLIB_TAG }}-
+            xbattle-${{ runner.os }}-
+
+      # ============================================================
+      # CMAKE CONFIGURE & NATIVE BUILD
+      # ============================================================
+      - name: Configure native Android build
         run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${NDK_VERSION}"
           cmake \
             -S . \
             -B build/android \
@@ -465,105 +692,89 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-${ANDROID_API} \
-            -DANDROID_STL=c++_static
+            -DANDROID_STL=c++_static \
+            -DPLATFORM=Android
 
-      - name: Build native game
+      - name: Compile C++ 3D engine
         run: |
-          cmake --build build/android --config Release --parallel 2
+          cmake \
+            --build build/android \
+            --config Release \
+            --parallel $(nproc)
 
-      - name: Prepare APK project
-        shell: bash
+      # ============================================================
+      # PREPARE APK
+      # ============================================================
+      - name: Prepare APK filesystem
         run: |
-          set -e
+          set -eux
+          rm -rf apk
+          mkdir -p apk/lib/arm64-v8a apk/assets apk/res/values
 
-          mkdir -p apkbuild/lib/arm64-v8a
-          mkdir -p apkbuild/assets
-          mkdir -p apkbuild/res/values
+          cp build/android/libmain.so apk/lib/arm64-v8a/libmain.so
+          cp android/src/main/AndroidManifest.xml apk/AndroidManifest.xml
+          cp android/src/main/res/values/* apk/res/values/
 
-          cp build/android/libmain.so \
-             apkbuild/lib/arm64-v8a/libmain.so
-
-          cp android/AndroidManifest.xml \
-             apkbuild/AndroidManifest.xml
-
-          cp android/res/values/strings.xml \
-             apkbuild/res/values/strings.xml
-
-          if [ -d build/android/android_assets/assets ]; then
-            cp -R build/android/android_assets/assets \
-              apkbuild/assets/
-          else
-            mkdir -p apkbuild/assets/assets
-            cp -R assets/* apkbuild/assets/assets/ || true
+          if [ -d assets ]; then
+            cp -r assets/* apk/assets/ 2>/dev/null || true
           fi
 
-      - name: Create unsigned APK
-        env:
-          BUILD_TOOLS: ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
+      # ============================================================
+      # CREATE RESOURCE PACKAGE & SIGN
+      # ============================================================
+      - name: Build unsigned APK
         run: |
-          "$BUILD_TOOLS/aapt" package \
+          set -eux
+          BT="$ANDROID_HOME/build-tools/${BUILD_TOOLS}"
+
+          "$BT/aapt" package \
             -f \
-            -M apkbuild/AndroidManifest.xml \
-            -S apkbuild/res \
-            -A apkbuild/assets \
+            -M apk/AndroidManifest.xml \
+            -S apk/res \
+            -A apk/assets \
             -I "$ANDROID_HOME/platforms/android-${ANDROID_API}/android.jar" \
-            -F apkbuild/XReal3D-unsigned.apk
+            -F XBattle-unsigned.apk
 
-          cd apkbuild
+          cd apk
+          "$BT/aapt" add ../XBattle-unsigned.apk lib/arm64-v8a/libmain.so
+          cd ..
 
-          "$BUILD_TOOLS/aapt" add \
-            XReal3D-unsigned.apk \
-            lib/arm64-v8a/libmain.so
-
-      - name: Generate signing key
+      - name: Create temporary signing key
         run: |
           keytool \
             -genkeypair \
             -v \
-            -keystore build-key.jks \
-            -alias xreal3d \
+            -keystore xbattle-release.jks \
+            -storetype JKS \
+            -alias xbattle \
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
             -storepass android \
             -keypass android \
-            -dname "CN=XReal3D,O=XReal3D,C=IN"
+            -dname "CN=XBattle,O=XBattle,C=IN"
 
-      - name: Align APK
-        env:
-          BUILD_TOOLS: ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
+      - name: Align and Sign APK
         run: |
-          "$BUILD_TOOLS/zipalign" \
-            -f \
-            -p \
-            4 \
-            apkbuild/XReal3D-unsigned.apk \
-            apkbuild/XReal3D-aligned.apk
+          set -eux
+          BT="$ANDROID_HOME/build-tools/${BUILD_TOOLS}"
 
-      - name: Sign APK
-        env:
-          BUILD_TOOLS: ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
-        run: |
-          "$BUILD_TOOLS/apksigner" sign \
-            --ks build-key.jks \
-            --ks-key-alias xreal3d \
+          "$BT/zipalign" -f -p 4 XBattle-unsigned.apk XBattle-aligned.apk
+
+          "$BT/apksigner" sign \
+            --ks xbattle-release.jks \
+            --ks-key-alias xbattle \
             --ks-pass pass:android \
             --key-pass pass:android \
-            --out XReal3D.apk \
-            apkbuild/XReal3D-aligned.apk
+            --out XBattle.apk \
+            XBattle-aligned.apk
 
-      - name: Verify APK
-        env:
-          BUILD_TOOLS: ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
-        run: |
-          "$BUILD_TOOLS/apksigner" verify --verbose XReal3D.apk
-
-          ls -lh XReal3D.apk
+          "$BT/apksigner" verify --verbose XBattle.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: XReal3D-Android-arm64
-          path: XReal3D.apk
+          name: XBattle-Android-arm64
+          path: XBattle.apk
           if-no-files-found: error
           retention-days: 7
