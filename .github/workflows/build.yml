@@ -1,0 +1,569 @@
+name: XReal3D - Android 3D Build
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: write
+
+concurrency:
+  group: xreal3d-build
+  cancel-in-progress: false
+
+env:
+  APP_NAME: XReal3D
+  PACKAGE_NAME: com.xreal3d.game
+
+  ANDROID_API: "35"
+  ANDROID_BUILD_TOOLS: "35.0.0"
+  NDK_VERSION: "27.2.12479018"
+
+  RAYLIB_VERSION: "5.5"
+
+jobs:
+
+  prepare:
+    name: Prepare complete source structure
+    runs-on: ubuntu-24.04
+
+    outputs:
+      changed: ${{ steps.gitcheck.outputs.changed }}
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create complete 3D source structure
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p \
+            .github/workflows \
+            src \
+            assets/models/characters \
+            assets/models/zombies \
+            assets/models/weapons \
+            assets/models/vehicles \
+            assets/models/buildings \
+            assets/models/environment \
+            assets/textures/characters \
+            assets/textures/zombies \
+            assets/textures/weapons \
+            assets/textures/vehicles \
+            assets/textures/terrain \
+            assets/textures/buildings \
+            assets/textures/environment \
+            assets/materials \
+            assets/animations \
+            assets/audio/music \
+            assets/audio/weapons \
+            assets/audio/footsteps \
+            assets/audio/environment \
+            assets/shaders \
+            assets/fonts \
+            assets/maps \
+            android/res/values
+
+          touch assets/models/characters/.gitkeep
+          touch assets/models/zombies/.gitkeep
+          touch assets/models/weapons/.gitkeep
+          touch assets/models/vehicles/.gitkeep
+          touch assets/models/buildings/.gitkeep
+          touch assets/models/environment/.gitkeep
+
+          touch assets/textures/characters/.gitkeep
+          touch assets/textures/zombies/.gitkeep
+          touch assets/textures/weapons/.gitkeep
+          touch assets/textures/vehicles/.gitkeep
+          touch assets/textures/terrain/.gitkeep
+          touch assets/textures/buildings/.gitkeep
+          touch assets/textures/environment/.gitkeep
+
+          touch assets/materials/.gitkeep
+          touch assets/animations/.gitkeep
+          touch assets/audio/music/.gitkeep
+          touch assets/audio/weapons/.gitkeep
+          touch assets/audio/footsteps/.gitkeep
+          touch assets/audio/environment/.gitkeep
+          touch assets/shaders/.gitkeep
+          touch assets/fonts/.gitkeep
+          touch assets/maps/.gitkeep
+
+      - name: Create Android manifest
+        shell: bash
+        run: |
+          cat > android/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-feature
+                  android:glEsVersion="0x00020000"
+                  android:required="true" />
+
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <application
+                  android:theme="@style/AppTheme"
+                  android:label="XReal3D"
+                  android:allowBackup="false"
+                  android:supportsRtl="true">
+
+                  <activity
+                      android:name="android.app.NativeActivity"
+                      android:label="XReal3D"
+                      android:screenOrientation="landscape"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:exported="true">
+
+                      <meta-data
+                          android:name="android.app.lib_name"
+                          android:value="main" />
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+
+                  </activity>
+
+              </application>
+
+          </manifest>
+          EOF
+
+      - name: Create Android resources
+        shell: bash
+        run: |
+          cat > android/res/values/strings.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">XReal3D</string>
+          </resources>
+          EOF
+
+      - name: Create CMake project
+        shell: bash
+        run: |
+          cat > CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.22)
+
+          project(XReal3D LANGUAGES C CXX)
+
+          set(CMAKE_CXX_STANDARD 17)
+          set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+          set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+          set(BUILD_GAMES OFF CACHE BOOL "" FORCE)
+          set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+          include(FetchContent)
+
+          FetchContent_Declare(
+              raylib
+              URL https://github.com/raysan5/raylib/archive/refs/tags/5.5.tar.gz
+              DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+          )
+
+          FetchContent_MakeAvailable(raylib)
+
+          file(GLOB_RECURSE GAME_SOURCES
+              CONFIGURE_DEPENDS
+              "${CMAKE_SOURCE_DIR}/src/*.cpp"
+          )
+
+          add_library(main SHARED ${GAME_SOURCES})
+
+          target_include_directories(main PRIVATE
+              "${CMAKE_SOURCE_DIR}/src"
+          )
+
+          target_link_libraries(main
+              raylib
+              android
+              log
+              EGL
+              GLESv2
+              OpenSLES
+              dl
+          )
+
+          target_compile_definitions(main PRIVATE
+              PLATFORM_ANDROID
+              GRAPHICS_API_OPENGL_ES2
+          )
+
+          set_target_properties(main PROPERTIES
+              OUTPUT_NAME "main"
+          )
+
+          # Copy game assets into Android asset storage.
+          add_custom_command(
+              TARGET main POST_BUILD
+              COMMAND ${CMAKE_COMMAND} -E make_directory
+              "${CMAKE_BINARY_DIR}/android_assets"
+          )
+
+          add_custom_command(
+              TARGET main POST_BUILD
+              COMMAND ${CMAKE_COMMAND} -E copy_directory
+              "${CMAKE_SOURCE_DIR}/assets"
+              "${CMAKE_BINARY_DIR}/android_assets/assets"
+          )
+          EOF
+
+      - name: Create initial 3D C++ source
+        shell: bash
+        run: |
+          cat > src/main.cpp <<'EOF'
+          #include "raylib.h"
+          #include "raymath.h"
+
+          int main()
+          {
+              SetConfigFlags(FLAG_MSAA_4X_HINT);
+
+              InitWindow(1280, 720, "XReal3D");
+
+              SetTargetFPS(60);
+
+              Camera3D camera{};
+              camera.position = Vector3{6.0f, 4.0f, 6.0f};
+              camera.target = Vector3{0.0f, 1.0f, 0.0f};
+              camera.up = Vector3{0.0f, 1.0f, 0.0f};
+              camera.fovy = 60.0f;
+              camera.projection = CAMERA_PERSPECTIVE;
+
+              while (!WindowShouldClose())
+              {
+                  float dt = GetFrameTime();
+
+                  if (IsKeyDown(KEY_W))
+                      camera.position.z -= 4.0f * dt;
+
+                  if (IsKeyDown(KEY_S))
+                      camera.position.z += 4.0f * dt;
+
+                  if (IsKeyDown(KEY_A))
+                      camera.position.x -= 4.0f * dt;
+
+                  if (IsKeyDown(KEY_D))
+                      camera.position.x += 4.0f * dt;
+
+                  BeginDrawing();
+
+                  ClearBackground(Color{105, 160, 210, 255});
+
+                  BeginMode3D(camera);
+
+                  DrawPlane(
+                      Vector3{0, 0, 0},
+                      Vector2{100, 100},
+                      Color{75, 100, 70, 255}
+                  );
+
+                  DrawCube(
+                      Vector3{0, 1, 0},
+                      2.0f,
+                      2.0f,
+                      2.0f,
+                      Color{150, 150, 150, 255}
+                  );
+
+                  DrawCubeWires(
+                      Vector3{0, 1, 0},
+                      2.0f,
+                      2.0f,
+                      2.0f,
+                      BLACK
+                  );
+
+                  DrawGrid(100, 1.0f);
+
+                  EndMode3D();
+
+                  DrawText(
+                      "XReal3D - 3D C++ Engine",
+                      25,
+                      25,
+                      28,
+                      WHITE
+                  );
+
+                  DrawText(
+                      "W A S D - Camera",
+                      25,
+                      60,
+                      20,
+                      WHITE
+                  );
+
+                  EndDrawing();
+              }
+
+              CloseWindow();
+
+              return 0;
+          }
+          EOF
+
+      - name: Create project README
+        shell: bash
+        run: |
+          cat > README.md <<'EOF'
+          # XReal3D
+
+          Mobile-first C++ 3D game project.
+
+          ## Technology
+
+          - C++
+          - raylib
+          - Android NDK
+          - CMake
+          - OpenGL ES
+          - GitHub Actions
+
+          ## Assets
+
+          Put 3D models in:
+
+          `assets/models/`
+
+          Put textures in:
+
+          `assets/textures/`
+
+          Put shaders in:
+
+          `assets/shaders/`
+
+          Put animations in:
+
+          `assets/animations/`
+
+          Put sounds/music in:
+
+          `assets/audio/`
+
+          Put maps in:
+
+          `assets/maps/`
+
+          Recommended model format:
+
+          `.glb`
+
+          ## Android
+
+          Target ABI:
+
+          `arm64-v8a`
+
+          Build system:
+
+          GitHub Actions + Android NDK + CMake.
+          EOF
+
+      - name: Create gitignore
+        shell: bash
+        run: |
+          cat > .gitignore <<'EOF'
+          build/
+          .cxx/
+          .gradle/
+          local.properties
+          *.apk
+          *.aab
+          *.keystore
+          *.jks
+          *.o
+          *.so
+          CMakeCache.txt
+          CMakeFiles/
+          cmake_install.cmake
+          Makefile
+          EOF
+
+      - name: Commit generated structure
+        id: gitcheck
+        shell: bash
+        run: |
+          git add .
+
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No repository structure changes."
+          else
+            git commit -m "Initialize complete 3D game source structure"
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+
+  build:
+    name: Build Android 3D APK
+    needs: prepare
+    runs-on: ubuntu-24.04
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-${ANDROID_API}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "cmake;3.22.1" \
+            "ndk;${NDK_VERSION}"
+
+      - name: Verify Android toolchain
+        run: |
+          java -version
+          cmake --version
+          ls "$ANDROID_HOME/ndk/${NDK_VERSION}"
+          adb version
+
+      - name: Configure CMake
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+        run: |
+          cmake \
+            -S . \
+            -B build/android \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-${ANDROID_API} \
+            -DANDROID_STL=c++_static
+
+      - name: Build native game
+        run: |
+          cmake --build build/android --config Release --parallel 2
+
+      - name: Prepare APK project
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p apkbuild/lib/arm64-v8a
+          mkdir -p apkbuild/assets
+          mkdir -p apkbuild/res/values
+
+          cp build/android/libmain.so \
+             apkbuild/lib/arm64-v8a/libmain.so
+
+          cp android/AndroidManifest.xml \
+             apkbuild/AndroidManifest.xml
+
+          cp android/res/values/strings.xml \
+             apkbuild/res/values/strings.xml
+
+          if [ -d build/android/android_assets/assets ]; then
+            cp -R build/android/android_assets/assets \
+              apkbuild/assets/
+          else
+            mkdir -p apkbuild/assets/assets
+            cp -R assets/* apkbuild/assets/assets/ || true
+          fi
+
+      - name: Create unsigned APK
+        env:
+          BUILD_TOOLS: ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
+        run: |
+          "$BUILD_TOOLS/aapt" package \
+            -f \
+            -M apkbuild/AndroidManifest.xml \
+            -S apkbuild/res \
+            -A apkbuild/assets \
+            -I "$ANDROID_HOME/platforms/android-${ANDROID_API}/android.jar" \
+            -F apkbuild/XReal3D-unsigned.apk
+
+          cd apkbuild
+
+          "$BUILD_TOOLS/aapt" add \
+            XReal3D-unsigned.apk \
+            lib/arm64-v8a/libmain.so
+
+      - name: Generate signing key
+        run: |
+          keytool \
+            -genkeypair \
+            -v \
+            -keystore build-key.jks \
+            -alias xreal3d \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass android \
+            -keypass android \
+            -dname "CN=XReal3D,O=XReal3D,C=IN"
+
+      - name: Align APK
+        env:
+          BUILD_TOOLS: ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
+        run: |
+          "$BUILD_TOOLS/zipalign" \
+            -f \
+            -p \
+            4 \
+            apkbuild/XReal3D-unsigned.apk \
+            apkbuild/XReal3D-aligned.apk
+
+      - name: Sign APK
+        env:
+          BUILD_TOOLS: ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
+        run: |
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks build-key.jks \
+            --ks-key-alias xreal3d \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out XReal3D.apk \
+            apkbuild/XReal3D-aligned.apk
+
+      - name: Verify APK
+        env:
+          BUILD_TOOLS: ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS }}
+        run: |
+          "$BUILD_TOOLS/apksigner" verify --verbose XReal3D.apk
+
+          ls -lh XReal3D.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: XReal3D-Android-arm64
+          path: XReal3D.apk
+          if-no-files-found: error
+          retention-days: 7
