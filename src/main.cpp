@@ -10,8 +10,8 @@ struct Player
     Vector3 position{0.0f, 1.0f, 0.0f};
     float yaw = 0.0f;
     float health = 100.0f;
-    float speed = 6.0f;
-    int ammo = 45;
+    float speed = 6.5f;
+    int ammo = 50;
     float shootCooldown = 0.0f;
 };
 
@@ -27,116 +27,182 @@ struct Bullet
 {
     Vector3 position;
     Vector3 velocity;
-    float life = 2.0f;
+    float life = 2.5f;
     bool alive = true;
+};
+
+struct SmartAssets
+{
+    Model mapModel;
+    bool hasMap = false;
+
+    Model playerModel;
+    bool hasPlayer = false;
+
+    Model zombieModel;
+    bool hasZombie = false;
 };
 
 static Vector3 Forward(float yaw)
 {
-    return Vector3{
-        std::sinf(yaw),
-        0.0f,
-        std::cosf(yaw)
-    };
+    return Vector3{ std::sinf(yaw), 0.0f, std::cosf(yaw) };
 }
 
 static Vector3 Right(float yaw)
 {
-    return Vector3{
-        std::cosf(yaw),
-        0.0f,
-        -std::sinf(yaw)
-    };
+    return Vector3{ std::cosf(yaw), 0.0f, -std::sinf(yaw) };
+}
+
+static void LoadSmartAssets(SmartAssets& assets)
+{
+    // Auto-detect and Load map.glb
+    if (FileExists("maps/map.glb"))
+    {
+        assets.mapModel = LoadModel("maps/map.glb");
+        assets.hasMap = IsModelValid(assets.mapModel);
+    }
+
+    // Auto-detect and Load player.glb
+    if (FileExists("models/player/player.glb"))
+    {
+        assets.playerModel = LoadModel("models/player/player.glb");
+        assets.hasPlayer = IsModelValid(assets.playerModel);
+    }
+
+    // Auto-detect and Load zombie.glb
+    if (FileExists("models/zombies/zombie.glb"))
+    {
+        assets.zombieModel = LoadModel("models/zombies/zombie.glb");
+        assets.hasZombie = IsModelValid(assets.zombieModel);
+    }
+}
+
+static void UnloadSmartAssets(SmartAssets& assets)
+{
+    if (assets.hasMap) UnloadModel(assets.mapModel);
+    if (assets.hasPlayer) UnloadModel(assets.playerModel);
+    if (assets.hasZombie) UnloadModel(assets.zombieModel);
+}
+
+static void DrawRealisticSkyAndGround()
+{
+    // Sun
+    DrawSphere(Vector3{ 60.0f, 45.0f, -80.0f }, 12.0f, Color{ 255, 245, 180, 255 });
+    DrawSphere(Vector3{ 60.0f, 45.0f, -80.0f }, 16.0f, Color{ 255, 230, 140, 60 });
+
+    // Distant Mountain Ranges (Horizon)
+    for (int i = 0; i < 20; ++i)
+    {
+        float angle = ((float)i / 20.0f) * PI * 2.0f;
+        float dist = 135.0f;
+        Vector3 pos{ std::cosf(angle) * dist, 0.0f, std::sinf(angle) * dist };
+        DrawCylinder(pos, 0.0f, 22.0f + (float)(i % 5) * 4.0f, 25.0f + (float)(i % 3) * 6.0f, 4, Color{ 65, 80, 95, 255 });
+    }
+
+    // Ground Terrain
+    DrawPlane(Vector3{ 0, 0, 0 }, Vector2{ 280, 280 }, Color{ 70, 105, 62, 255 });
+
+    // Tactical Road
+    DrawCube(Vector3{ 0, 0.02f, 0 }, 9.0f, 0.04f, 260.0f, Color{ 55, 55, 58, 255 });
+    for (float z = -120.0f; z < 120.0f; z += 12.0f)
+    {
+        DrawCube(Vector3{ 0, 0.05f, z }, 0.6f, 0.02f, 5.0f, Color{ 240, 230, 160, 255 });
+    }
+
+    // Environment Structures
+    for (int x = -40; x <= 40; x += 25)
+    {
+        for (int z = -40; z <= 40; z += 25)
+        {
+            if (x == 0 || z == 0) continue;
+            Vector3 bp{ (float)x, 2.5f, (float)z };
+            DrawCube(bp, 10.0f, 5.0f, 10.0f, Color{ 140, 135, 120, 255 });
+            DrawCube(Vector3{ bp.x, 5.5f, bp.z }, 10.5f, 1.2f, 10.5f, Color{ 100, 50, 40, 255 });
+        }
+    }
+
+    // Trees
+    for (int i = 0; i < 45; ++i)
+    {
+        float a = (float)i * 0.72f;
+        float r = 28.0f + (float)(i % 8) * 5.0f;
+        Vector3 tp{ std::cosf(a) * r, 2.0f, std::sinf(a) * r };
+        DrawCylinder(tp, 0.3f, 0.45f, 4.5f, 8, Color{ 75, 45, 30, 255 });
+        DrawSphere(Vector3{ tp.x, 5.5f, tp.z }, 2.4f, Color{ 45, 110, 48, 255 });
+    }
 }
 
 static void SpawnZombies(std::vector<Zombie>& zombies)
 {
     zombies.clear();
-    for (int i = 0; i < 14; ++i)
+    for (int i = 0; i < 15; ++i)
     {
-        float angle = ((float)i / 14.0f) * PI * 2.0f;
-        float radius = 14.0f + (float)(i % 4) * 4.5f;
-
+        float angle = ((float)i / 15.0f) * PI * 2.0f;
+        float radius = 15.0f + (float)(i % 5) * 4.5f;
         Zombie z;
-        z.position = {
-            std::cosf(angle) * radius,
-            1.0f,
-            std::sinf(angle) * radius
-        };
+        z.position = { std::cosf(angle) * radius, 1.0f, std::sinf(angle) * radius };
         zombies.push_back(z);
     }
 }
 
-static void DrawWorld()
+static void DrawPlayerEntity(const Player& player, const SmartAssets& assets)
 {
-    DrawPlane(Vector3{0, 0, 0}, Vector2{140, 140}, Color{68, 98, 64, 255});
-    DrawCube(Vector3{0, 0.02f, 0}, 8, 0.05f, 140, Color{60, 60, 60, 255});
-
-    for (int x = -30; x <= 30; x += 20)
+    if (assets.hasPlayer)
     {
-        for (int z = -30; z <= 30; z += 20)
-        {
-            if (x == 0 || z == 0) continue;
-            Vector3 p{(float)x, 2.0f, (float)z};
-            DrawCube(p, 8, 4, 8, Color{145, 140, 125, 255});
-            DrawCube(Vector3{p.x, 4.5f, p.z}, 8.5f, 1.0f, 8.5f, Color{90, 45, 35, 255});
-        }
+        Vector3 rotAxis{ 0.0f, 1.0f, 0.0f };
+        float rotAngle = (player.yaw * RAD2DEG) + 180.0f;
+        DrawModelEx(assets.playerModel, player.position, rotAxis, rotAngle, Vector3{ 1.0f, 1.0f, 1.0f }, WHITE);
     }
-
-    for (int i = 0; i < 35; ++i)
+    else
     {
-        float a = (float)i * 0.75f;
-        float r = 24.0f + (float)(i % 7) * 4.5f;
-        Vector3 p{std::cosf(a) * r, 2.0f, std::sinf(a) * r};
-
-        DrawCylinder(p, 0.25f, 0.35f, 4.0f, 8, Color{75, 45, 30, 255});
-        DrawSphere(Vector3{p.x, 5.0f, p.z}, 1.9f, Color{40, 95, 45, 255});
+        // Realistic procedural soldier body
+        DrawCapsule(
+            Vector3{ player.position.x, player.position.y - 0.5f, player.position.z },
+            Vector3{ player.position.x, player.position.y + 1.0f, player.position.z },
+            0.45f, 8, 8, Color{ 40, 60, 80, 255 }
+        );
+        Vector3 f = Forward(player.yaw);
+        // Head & Helmet
+        DrawSphere(Vector3{ player.position.x, player.position.y + 1.15f, player.position.z }, 0.38f, Color{ 30, 40, 30, 255 });
+        DrawSphere(Vector3{ player.position.x + f.x * 0.2f, player.position.y + 1.10f, player.position.z + f.z * 0.2f }, 0.16f, Color{ 230, 185, 150, 255 });
+        // Weapon
+        DrawCube(Vector3{ player.position.x + f.x * 0.65f, player.position.y + 0.7f, player.position.z + f.z * 0.65f }, 0.12f, 0.18f, 0.7f, DARKGRAY);
     }
 }
 
-static void DrawPlayer(const Player& player)
-{
-    DrawCapsule(
-        Vector3{player.position.x, player.position.y - 0.5f, player.position.z},
-        Vector3{player.position.x, player.position.y + 1.0f, player.position.z},
-        0.45f, 8, 8, BLUE
-    );
-
-    Vector3 f = Forward(player.yaw);
-    DrawSphere(
-        Vector3{player.position.x + f.x * 0.65f, player.position.y + 0.9f, player.position.z + f.z * 0.65f},
-        0.35f, BEIGE
-    );
-}
-
-static void DrawZombie(const Zombie& zombie)
+static void DrawZombieEntity(const Zombie& zombie, const SmartAssets& assets, const Player& player)
 {
     if (!zombie.alive) return;
 
-    DrawCapsule(
-        Vector3{zombie.position.x, 0.5f, zombie.position.z},
-        Vector3{zombie.position.x, 2.0f, zombie.position.z},
-        0.45f, 8, 8, MAROON
-    );
-
-    DrawSphere(
-        Vector3{zombie.position.x, 2.35f, zombie.position.z},
-        0.42f, Color{100, 150, 100, 255}
-    );
+    if (assets.hasZombie)
+    {
+        Vector3 toPlayer = Vector3Subtract(player.position, zombie.position);
+        float zYaw = std::atan2f(toPlayer.x, toPlayer.z) * RAD2DEG;
+        DrawModelEx(assets.zombieModel, zombie.position, Vector3{ 0, 1, 0 }, zYaw, Vector3{ 1.0f, 1.0f, 1.0f }, WHITE);
+    }
+    else
+    {
+        DrawCapsule(
+            Vector3{ zombie.position.x, 0.5f, zombie.position.z },
+            Vector3{ zombie.position.x, 2.0f, zombie.position.z },
+            0.45f, 8, 8, Color{ 110, 35, 35, 255 }
+        );
+        DrawSphere(Vector3{ zombie.position.x, 2.35f, zombie.position.z }, 0.40f, Color{ 90, 140, 90, 255 });
+    }
 }
 
 static void Shoot(Player& player, std::vector<Bullet>& bullets)
 {
     if (player.shootCooldown > 0.0f || player.ammo <= 0) return;
 
-    Vector3 direction = Forward(player.yaw);
-    Bullet bullet;
-    bullet.position = Vector3Add(player.position, Vector3{direction.x * 1.0f, 0.3f, direction.z * 1.0f});
-    bullet.velocity = Vector3Scale(direction, 40.0f);
-    bullets.push_back(bullet);
+    Vector3 dir = Forward(player.yaw);
+    Bullet b;
+    b.position = Vector3Add(player.position, Vector3{ dir.x * 0.9f, 0.5f, dir.z * 0.9f });
+    b.velocity = Vector3Scale(dir, 42.0f);
+    bullets.push_back(b);
 
     player.ammo--;
-    player.shootCooldown = 0.15f;
+    player.shootCooldown = 0.14f;
 }
 
 int main()
@@ -145,19 +211,22 @@ int main()
     InitWindow(1280, 720, "XBattle");
     SetTargetFPS(60);
 
+    SmartAssets assets;
+    LoadSmartAssets(assets);
+
     Player player;
     std::vector<Zombie> zombies;
     std::vector<Bullet> bullets;
     SpawnZombies(zombies);
 
     Camera3D camera{};
-    camera.position = {0, 5, 8};
-    camera.target = {0, 1, 0};
-    camera.up = {0, 1, 0};
-    camera.fovy = 60.0f;
+    camera.position = { 0, 5, 8 };
+    camera.target = { 0, 1, 0 };
+    camera.up = { 0, 1, 0 };
+    camera.fovy = 62.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
-    Vector2 prevRightTouchPos{0, 0};
+    Vector2 prevRightTouchPos{ 0, 0 };
     bool rightTouchActive = false;
 
     while (!WindowShouldClose())
@@ -166,18 +235,18 @@ int main()
         int screenW = GetScreenWidth();
         int screenH = GetScreenHeight();
 
-        Rectangle fireBtnRect{ (float)screenW - 140, (float)screenH - 140, 110, 110 };
-        Vector2 moveInput{0.0f, 0.0f};
+        Rectangle fireBtn{ (float)screenW - 145, (float)screenH - 145, 115, 115 };
+        Vector2 moveInput{ 0.0f, 0.0f };
         bool fireTriggered = false;
 
         int touchCount = GetTouchPointCount();
-        bool currentRightTouchActive = false;
+        bool currentRightActive = false;
 
         for (int i = 0; i < touchCount; ++i)
         {
             Vector2 tPos = GetTouchPosition(i);
 
-            if (CheckCollisionPointRec(tPos, fireBtnRect))
+            if (CheckCollisionPointRec(tPos, fireBtn))
             {
                 fireTriggered = true;
                 continue;
@@ -194,41 +263,39 @@ int main()
             }
             else if (tPos.x >= (float)screenW * 0.45f)
             {
-                currentRightTouchActive = true;
+                currentRightActive = true;
                 if (rightTouchActive)
                 {
                     float deltaX = tPos.x - prevRightTouchPos.x;
-                    player.yaw += deltaX * 0.006f;
+                    player.yaw += deltaX * 0.0065f;
                 }
                 prevRightTouchPos = tPos;
             }
         }
-        rightTouchActive = currentRightTouchActive;
+        rightTouchActive = currentRightActive;
 
+        // Keyboard Fallbacks
         if (IsKeyDown(KEY_W)) moveInput.y -= 1.0f;
         if (IsKeyDown(KEY_S)) moveInput.y += 1.0f;
         if (IsKeyDown(KEY_A)) moveInput.x -= 1.0f;
         if (IsKeyDown(KEY_D)) moveInput.x += 1.0f;
-        if (IsKeyDown(KEY_LEFT)) player.yaw -= 2.5f * dt;
-        if (IsKeyDown(KEY_RIGHT)) player.yaw += 2.5f * dt;
+        if (IsKeyDown(KEY_LEFT)) player.yaw -= 2.6f * dt;
+        if (IsKeyDown(KEY_RIGHT)) player.yaw += 2.6f * dt;
         if (IsKeyDown(KEY_SPACE)) fireTriggered = true;
 
         if (Vector2Length(moveInput) > 0.1f)
         {
-            Vector2 normInput = Vector2Normalize(moveInput);
+            Vector2 norm = Vector2Normalize(moveInput);
             Vector3 fwd = Forward(player.yaw);
             Vector3 rgt = Right(player.yaw);
-
-            Vector3 dir = Vector3Add(
-                Vector3Scale(fwd, -normInput.y),
-                Vector3Scale(rgt, normInput.x)
-            );
+            Vector3 dir = Vector3Add(Vector3Scale(fwd, -norm.y), Vector3Scale(rgt, norm.x));
             player.position = Vector3Add(player.position, Vector3Scale(dir, player.speed * dt));
         }
 
         if (fireTriggered) Shoot(player, bullets);
         if (player.shootCooldown > 0) player.shootCooldown -= dt;
 
+        // Update Bullets
         for (auto& bullet : bullets)
         {
             if (!bullet.alive) continue;
@@ -239,7 +306,7 @@ int main()
             for (auto& zombie : zombies)
             {
                 if (!zombie.alive) continue;
-                if (Vector3Distance(bullet.position, zombie.position) < 1.25f)
+                if (Vector3Distance(bullet.position, zombie.position) < 1.35f)
                 {
                     zombie.health -= 50;
                     bullet.alive = false;
@@ -249,16 +316,16 @@ int main()
             }
         }
 
+        // Update Zombies
         for (auto& zombie : zombies)
         {
             if (!zombie.alive) continue;
-            Vector3 direction = Vector3Subtract(player.position, zombie.position);
-            float distance = Vector3Length(direction);
-
-            if (distance > 1.4f)
+            Vector3 dir = Vector3Subtract(player.position, zombie.position);
+            float dist = Vector3Length(dir);
+            if (dist > 1.35f)
             {
-                direction = Vector3Normalize(direction);
-                zombie.position = Vector3Add(zombie.position, Vector3Scale(direction, zombie.speed * dt));
+                dir = Vector3Normalize(dir);
+                zombie.position = Vector3Add(zombie.position, Vector3Scale(dir, zombie.speed * dt));
             }
             else
             {
@@ -267,40 +334,61 @@ int main()
             }
         }
 
-        Vector3 forward = Forward(player.yaw);
-        camera.position = Vector3Add(player.position, Vector3{-forward.x * 7.5f, 4.2f, -forward.z * 7.5f});
-        camera.target = Vector3Add(player.position, Vector3{0, 1.2f, 0});
+        // Smooth Third-Person Camera
+        Vector3 fwd = Forward(player.yaw);
+        camera.position = Vector3Add(player.position, Vector3{ -fwd.x * 7.5f, 4.2f, -fwd.z * 7.5f });
+        camera.target = Vector3Add(player.position, Vector3{ 0, 1.2f, 0 });
 
+        // Render
         BeginDrawing();
-        ClearBackground(Color{105, 165, 220, 255});
+        ClearBackground(Color{ 135, 195, 235, 255 }); // Realistic atmospheric blue
 
         BeginMode3D(camera);
-        DrawWorld();
-        for (const auto& zombie : zombies) DrawZombie(zombie);
-        DrawPlayer(player);
+
+        // Smart Map Rendering
+        if (assets.hasMap)
+        {
+            DrawModel(assets.mapModel, Vector3{ 0, 0, 0 }, 1.0f, WHITE);
+        }
+        else
+        {
+            DrawRealisticSkyAndGround();
+        }
+
+        // Entities
+        for (const auto& zombie : zombies) DrawZombieEntity(zombie, assets, player);
+        DrawPlayerEntity(player, assets);
+
         for (const auto& bullet : bullets)
         {
-            if (bullet.alive) DrawSphere(bullet.position, 0.09f, YELLOW);
+            if (bullet.alive)
+            {
+                DrawSphere(bullet.position, 0.12f, YELLOW);
+            }
         }
+
         EndMode3D();
 
-        DrawRectangle(20, 20, 230, 70, Fade(BLACK, 0.6f));
-        DrawText("XBATTLE 3D", 35, 30, 22, WHITE);
-        DrawText(TextFormat("HP: %d", (int)player.health), 35, 58, 20, (player.health > 30 ? GREEN : RED));
-        DrawText(TextFormat("AMMO: %d", player.ammo), screenW - 160, 25, 22, YELLOW);
+        // Real-time HUD
+        DrawRectangle(25, 25, 240, 75, Fade(BLACK, 0.65f));
+        DrawText("XBATTLE 3D", 40, 34, 22, WHITE);
+        DrawText(TextFormat("HP: %d", (int)player.health), 40, 62, 20, (player.health > 30 ? GREEN : RED));
+        DrawText(TextFormat("AMMO: %d", player.ammo), screenW - 170, 30, 22, YELLOW);
 
-        Vector2 leftCenter{ (float)screenW * 0.18f, (float)screenH * 0.72f };
-        DrawCircleV(leftCenter, 65.0f, Fade(WHITE, 0.15f));
-        DrawCircleLines(leftCenter.x, leftCenter.y, 65.0f, Fade(WHITE, 0.4f));
-        DrawCircleV(Vector2Add(leftCenter, Vector2Scale(moveInput, 40.0f)), 28.0f, Fade(SKYBLUE, 0.5f));
+        // Controls Overlay
+        Vector2 dpadCenter{ (float)screenW * 0.18f, (float)screenH * 0.72f };
+        DrawCircleV(dpadCenter, 65.0f, Fade(WHITE, 0.15f));
+        DrawCircleLines(dpadCenter.x, dpadCenter.y, 65.0f, Fade(WHITE, 0.45f));
+        DrawCircleV(Vector2Add(dpadCenter, Vector2Scale(moveInput, 38.0f)), 26.0f, Fade(SKYBLUE, 0.6f));
 
-        DrawCircle(fireBtnRect.x + 55, fireBtnRect.y + 55, 50, Fade(MAROON, 0.7f));
-        DrawCircleLines(fireBtnRect.x + 55, fireBtnRect.y + 55, 50, WHITE);
-        DrawText("FIRE", fireBtnRect.x + 32, fireBtnRect.y + 44, 20, WHITE);
+        DrawCircle(fireBtn.x + 57, fireBtn.y + 57, 52, Fade(MAROON, 0.75f));
+        DrawCircleLines(fireBtn.x + 57, fireBtn.y + 57, 52, WHITE);
+        DrawText("FIRE", fireBtn.x + 35, fireBtn.y + 46, 20, WHITE);
 
         EndDrawing();
     }
 
+    UnloadSmartAssets(assets);
     CloseWindow();
     return 0;
 }
