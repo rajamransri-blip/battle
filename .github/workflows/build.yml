@@ -93,7 +93,7 @@ jobs:
           touch assets/fonts/.gitkeep
 
       # ============================================================
-      # ANDROID MANIFEST (FIXED: package name and hasCode="false")
+      # ANDROID MANIFEST
       # ============================================================
       - name: Create AndroidManifest.xml
         run: |
@@ -176,7 +176,7 @@ jobs:
           EOF
 
       # ============================================================
-      # CMAKE (FIXED: symbol retention -Wl,-u,ANativeActivity_onCreate)
+      # CMAKE
       # ============================================================
       - name: Create CMakeLists.txt
         run: |
@@ -440,12 +440,10 @@ jobs:
                   int screenW = GetScreenWidth();
                   int screenH = GetScreenHeight();
 
-                  // Virtual Touch Areas
                   Rectangle fireBtnRect{ (float)screenW - 140, (float)screenH - 140, 110, 110 };
                   Vector2 moveInput{0.0f, 0.0f};
                   bool fireTriggered = false;
 
-                  // Handle Multi-Touch (Mobile)
                   int touchCount = GetTouchPointCount();
                   bool currentRightTouchActive = false;
 
@@ -453,14 +451,12 @@ jobs:
                   {
                       Vector2 tPos = GetTouchPosition(i);
 
-                      // Check Fire Button
                       if (CheckCollisionPointRec(tPos, fireBtnRect))
                       {
                           fireTriggered = true;
                           continue;
                       }
 
-                      // Left screen: Movement D-Pad
                       if (tPos.x < (float)screenW * 0.45f)
                       {
                           Vector2 center{ (float)screenW * 0.18f, (float)screenH * 0.72f };
@@ -470,7 +466,6 @@ jobs:
                               moveInput = Vector2Normalize(delta);
                           }
                       }
-                      // Right screen: Camera Yaw (Aiming)
                       else if (tPos.x >= (float)screenW * 0.45f)
                       {
                           currentRightTouchActive = true;
@@ -484,7 +479,6 @@ jobs:
                   }
                   rightTouchActive = currentRightTouchActive;
 
-                  // Keyboard Controls fallback
                   if (IsKeyDown(KEY_W)) moveInput.y -= 1.0f;
                   if (IsKeyDown(KEY_S)) moveInput.y += 1.0f;
                   if (IsKeyDown(KEY_A)) moveInput.x -= 1.0f;
@@ -493,7 +487,6 @@ jobs:
                   if (IsKeyDown(KEY_RIGHT)) player.yaw += 2.5f * dt;
                   if (IsKeyDown(KEY_SPACE)) fireTriggered = true;
 
-                  // Apply Player Movement in Camera Direction
                   if (Vector2Length(moveInput) > 0.1f)
                   {
                       Vector2 normInput = Vector2Normalize(moveInput);
@@ -507,11 +500,9 @@ jobs:
                       player.position = Vector3Add(player.position, Vector3Scale(dir, player.speed * dt));
                   }
 
-                  // Shooting
                   if (fireTriggered) Shoot(player, bullets);
                   if (player.shootCooldown > 0) player.shootCooldown -= dt;
 
-                  // Bullets
                   for (auto& bullet : bullets)
                   {
                       if (!bullet.alive) continue;
@@ -532,7 +523,6 @@ jobs:
                       }
                   }
 
-                  // Zombies AI
                   for (auto& zombie : zombies)
                   {
                       if (!zombie.alive) continue;
@@ -551,12 +541,10 @@ jobs:
                       }
                   }
 
-                  // Third Person Camera Follow
                   Vector3 forward = Forward(player.yaw);
                   camera.position = Vector3Add(player.position, Vector3{-forward.x * 7.5f, 4.2f, -forward.z * 7.5f});
                   camera.target = Vector3Add(player.position, Vector3{0, 1.2f, 0});
 
-                  // Render
                   BeginDrawing();
                   ClearBackground(Color{105, 165, 220, 255});
 
@@ -570,19 +558,16 @@ jobs:
                   }
                   EndMode3D();
 
-                  // HUD
                   DrawRectangle(20, 20, 230, 70, Fade(BLACK, 0.6f));
                   DrawText("XBATTLE 3D", 35, 30, 22, WHITE);
                   DrawText(TextFormat("HP: %d", (int)player.health), 35, 58, 20, (player.health > 30 ? GREEN : RED));
                   DrawText(TextFormat("AMMO: %d", player.ammo), screenW - 160, 25, 22, YELLOW);
 
-                  // Mobile Touch On-Screen Controls
                   Vector2 leftCenter{ (float)screenW * 0.18f, (float)screenH * 0.72f };
                   DrawCircleV(leftCenter, 65.0f, Fade(WHITE, 0.15f));
                   DrawCircleLines(leftCenter.x, leftCenter.y, 65.0f, Fade(WHITE, 0.4f));
                   DrawCircleV(Vector2Add(leftCenter, Vector2Scale(moveInput, 40.0f)), 28.0f, Fade(SKYBLUE, 0.5f));
 
-                  // Fire Button
                   DrawCircle(fireBtnRect.x + 55, fireBtnRect.y + 55, 50, Fade(MAROON, 0.7f));
                   DrawCircleLines(fireBtnRect.x + 55, fireBtnRect.y + 55, 50, WHITE);
                   DrawText("FIRE", fireBtnRect.x + 32, fireBtnRect.y + 44, 20, WHITE);
@@ -618,7 +603,7 @@ jobs:
           EOF
 
       # ============================================================
-      # COMMIT STRUCTURE (FIXED: [skip ci] to avoid recursive CI)
+      # COMMIT STRUCTURE
       # ============================================================
       - name: Commit generated files
         run: |
@@ -636,7 +621,6 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      # FIXED: checkout using ref_name to pull generated commit
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -649,23 +633,58 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK and NDK
+      # ============================================================
+      # ROBUST SDK & LICENSE SETUP (NO THIRD-PARTY ACTION HANGS)
+      # ============================================================
+      - name: Setup Android SDK and Accept Licenses
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager \
+          export ANDROID_HOME="/usr/local/lib/android/sdk"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+
+          # 1. Pre-accept all licenses directly on filesystem
+          mkdir -p "$ANDROID_HOME/licenses"
+          echo -e "\n24333f8a63b6825ea9c5514f83c2829b004d1fee\nd56f5187479451eabf01fb78af6dfcb131a6481e\n84831b9409646a3f8e447306ff971e50958aac60" > "$ANDROID_HOME/licenses/android-sdk-license"
+          echo -e "\n856480a309620326dd8ca63ad49514c9203263dd" > "$ANDROID_HOME/licenses/android-sdk-arm-dbt-license"
+          echo -e "\n84831b9409646a3f8e447306ff971e50958aac60" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          echo -e "\n7912072950560f78d3652693c7407cb617e6377f" > "$ANDROID_HOME/licenses/android-googletv-license"
+          echo -e "\n601085b94cd77f0b54ff86406957099fed7926e0" > "$ANDROID_HOME/licenses/google-gdk-license"
+          echo -e "\ne67f269c35329453735e074229efc0b6473c8397" > "$ANDROID_HOME/licenses/mips-android-sysimage-license"
+
+          # 2. Automated non-interactive accept
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+
+          # 3. Install required platform and build tools
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "platform-tools" \
             "platforms;android-${ANDROID_API}" \
-            "build-tools;${BUILD_TOOLS}" \
-            "ndk;${NDK_VERSION}" \
-            "cmake;3.22.1"
+            "build-tools;${BUILD_TOOLS}" || true
+
+      # ============================================================
+      # NDK SETUP WITH AUTO-FALLBACK
+      # ============================================================
+      - name: Setup Android NDK
+        run: |
+          export ANDROID_HOME="/usr/local/lib/android/sdk"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+
+          if [ ! -d "$ANDROID_HOME/ndk/${NDK_VERSION}" ]; then
+            echo "Installing NDK ${NDK_VERSION}..."
+            yes | sdkmanager "ndk;${NDK_VERSION}" || true
+          fi
+
+          if [ -d "$ANDROID_HOME/ndk/${NDK_VERSION}" ]; then
+            TARGET_NDK="$ANDROID_HOME/ndk/${NDK_VERSION}"
+          else
+            TARGET_NDK=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | tail -n 1)
+          fi
+
+          echo "Using NDK path: $TARGET_NDK"
+          echo "ANDROID_NDK_HOME=$TARGET_NDK" >> $GITHUB_ENV
 
       - name: Install Ninja Build
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build
 
       - name: Cache CMake and raylib
         uses: actions/cache@v4
@@ -683,7 +702,6 @@ jobs:
       # ============================================================
       - name: Configure native Android build
         run: |
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${NDK_VERSION}"
           cmake \
             -S . \
             -B build/android \
@@ -726,13 +744,21 @@ jobs:
         run: |
           set -eux
           BT="$ANDROID_HOME/build-tools/${BUILD_TOOLS}"
+          if [ ! -f "$BT/aapt" ]; then
+            BT=$(ls -d $ANDROID_HOME/build-tools/* 2>/dev/null | tail -n 1)
+          fi
+
+          PLATFORM_JAR="$ANDROID_HOME/platforms/android-${ANDROID_API}/android.jar"
+          if [ ! -f "$PLATFORM_JAR" ]; then
+            PLATFORM_JAR=$(ls $ANDROID_HOME/platforms/*/android.jar 2>/dev/null | tail -n 1)
+          fi
 
           "$BT/aapt" package \
             -f \
             -M apk/AndroidManifest.xml \
             -S apk/res \
             -A apk/assets \
-            -I "$ANDROID_HOME/platforms/android-${ANDROID_API}/android.jar" \
+            -I "$PLATFORM_JAR" \
             -F XBattle-unsigned.apk
 
           cd apk
@@ -758,6 +784,9 @@ jobs:
         run: |
           set -eux
           BT="$ANDROID_HOME/build-tools/${BUILD_TOOLS}"
+          if [ ! -f "$BT/zipalign" ]; then
+            BT=$(ls -d $ANDROID_HOME/build-tools/* 2>/dev/null | tail -n 1)
+          fi
 
           "$BT/zipalign" -f -p 4 XBattle-unsigned.apk XBattle-aligned.apk
 
