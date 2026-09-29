@@ -4,6 +4,7 @@
 #include <string>
 #include <filesystem>
 #include <cstring>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
@@ -31,6 +32,8 @@ int main(int argc, char* argv[])
     std::string outputFile = (argc > 2) ? argv[2] : "game.pak";
 
     std::vector<fs::path> filePaths;
+
+    // 1. Scan assets folder
     if (fs::exists(assetsDir))
     {
         for (const auto &entry : fs::recursive_directory_iterator(assetsDir))
@@ -46,7 +49,21 @@ int main(int argc, char* argv[])
         }
     }
 
-    std::cout << "[PACKER] Packaging " << filePaths.size() << " files into " << outputFile << "...\n";
+    // 2. Scan root directory for directly uploaded 3D models (.glb, .gltf)
+    for (const auto &entry : fs::directory_iterator("."))
+    {
+        if (fs::is_regular_file(entry.path()))
+        {
+            std::string ext = entry.path().extension().string();
+            for (char &c : ext) c = (char)::tolower(c);
+            if (ext == ".glb" || ext == ".gltf")
+            {
+                filePaths.push_back(entry.path());
+            }
+        }
+    }
+
+    std::cout << "[PACKER] Found " << filePaths.size() << " assets to pack into " << outputFile << "\n";
 
     std::vector<PakEntry> entries;
     std::vector<std::vector<char>> fileBuffers;
@@ -63,7 +80,20 @@ int main(int argc, char* argv[])
         std::vector<char> buffer(size);
         file.read(buffer.data(), size);
 
-        std::string relPath = fs::relative(p, assetsDir).generic_string();
+        std::string relPath;
+        std::string pStr = p.generic_string();
+        if (pStr.rfind(assetsDir + "/", 0) == 0)
+        {
+            relPath = fs::relative(p, assetsDir).generic_string();
+        }
+        else if (pStr.rfind("./", 0) == 0)
+        {
+            relPath = p.filename().generic_string();
+        }
+        else
+        {
+            relPath = p.generic_string();
+        }
 
         PakEntry entry;
         std::memset(&entry, 0, sizeof(PakEntry));
@@ -74,6 +104,7 @@ int main(int argc, char* argv[])
         entries.push_back(entry);
         fileBuffers.push_back(std::move(buffer));
 
+        std::cout << "  Packed: " << relPath << " (" << size << " bytes)\n";
         dataOffset += size;
     }
 
@@ -92,6 +123,6 @@ int main(int argc, char* argv[])
         out.write(buf.data(), buf.size());
     }
 
-    std::cout << "[PACKER] Package generated successfully (" << dataOffset << " bytes).\n";
+    std::cout << "[PACKER] game.pak created successfully (" << dataOffset << " bytes).\n";
     return 0;
 }

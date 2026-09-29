@@ -55,20 +55,37 @@ static Vector3 Right(float yaw)
 
 static void LoadSmartAssets(SmartAssets& assets)
 {
-    if (FileExistsInPak("maps/map.glb"))
+    // 1. Dynamic Map Discovery
+    std::string mapPath = FindAssetMatch({ "map", "ground", "terrain", "world", "city" });
+    if (mapPath.empty() && FileExistsInPak("maps/map.glb")) mapPath = "maps/map.glb";
+
+    if (!mapPath.empty())
     {
-        assets.mapModel = LoadModel("maps/map.glb");
+        assets.mapModel = LoadModel(mapPath.c_str());
         assets.hasMap = IsModelValid(assets.mapModel);
+        if (assets.hasMap) TraceLog(LOG_INFO, "SMART: Loaded Map -> %s", mapPath.c_str());
     }
-    if (FileExistsInPak("models/player/player.glb"))
+
+    // 2. Dynamic Player Discovery (Auto-detects mummy, pubg, player)
+    std::string playerPath = FindAssetMatch({ "mummy", "player", "pubg", "charac", "soldier", "hero" });
+    if (playerPath.empty() && FileExistsInPak("models/player/player.glb")) playerPath = "models/player/player.glb";
+
+    if (!playerPath.empty())
     {
-        assets.playerModel = LoadModel("models/player/player.glb");
+        assets.playerModel = LoadModel(playerPath.c_str());
         assets.hasPlayer = IsModelValid(assets.playerModel);
+        if (assets.hasPlayer) TraceLog(LOG_INFO, "SMART: Loaded Player Character -> %s", playerPath.c_str());
     }
-    if (FileExistsInPak("models/zombies/zombie.glb"))
+
+    // 3. Dynamic Zombie Discovery
+    std::string zombiePath = FindAssetMatch({ "zombie", "monster", "enemy", "mutant" });
+    if (zombiePath.empty() && FileExistsInPak("models/zombies/zombie.glb")) zombiePath = "models/zombies/zombie.glb";
+
+    if (!zombiePath.empty())
     {
-        assets.zombieModel = LoadModel("models/zombies/zombie.glb");
+        assets.zombieModel = LoadModel(zombiePath.c_str());
         assets.hasZombie = IsModelValid(assets.zombieModel);
+        if (assets.hasZombie) TraceLog(LOG_INFO, "SMART: Loaded Zombie Model -> %s", zombiePath.c_str());
     }
 }
 
@@ -253,6 +270,7 @@ int main()
         }
         if (player.shootCooldown > 0) player.shootCooldown -= dt;
 
+        // Update Bullets (FIXED: Loop variable z)
         for (auto& b : bullets)
         {
             if (!b.alive) continue;
@@ -264,9 +282,9 @@ int main()
             {
                 if (z.alive && Vector3Distance(b.position, z.position) < 1.3f)
                 {
-                    zombie.health -= 50;
+                    z.health -= 50;
                     b.alive = false;
-                    if (zombie.health <= 0) zombie.alive = false;
+                    if (z.health <= 0) z.alive = false;
                     break;
                 }
             }

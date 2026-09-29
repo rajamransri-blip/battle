@@ -5,6 +5,7 @@
 #include <cstring>
 #include <vector>
 #include <string>
+#include <algorithm>
 
 #define PAK_MAGIC "XPAK"
 #define MAX_PAK_PATH 128
@@ -54,7 +55,6 @@ static unsigned char *PakLoadFileDataCallback(const char *fileName, int *dataSiz
         }
     }
 
-    // Recursion safe fallback to default raylib loader
     SetLoadFileDataCallback(nullptr);
     unsigned char *result = LoadFileData(fileName, dataSize);
     SetLoadFileDataCallback(PakLoadFileDataCallback);
@@ -113,6 +113,28 @@ static bool FileExistsInPak(const char *fileName)
         if (search == entry.path) return true;
     }
     return FileExists(fileName);
+}
+
+// Smart Auto-Discovery: finds any .glb matching uploaded keywords
+static std::string FindAssetMatch(const std::vector<std::string>& keywords)
+{
+    for (const auto &entry : g_PakEntries)
+    {
+        std::string pathLower = entry.path;
+        for (char &c : pathLower) c = (char)::tolower(c);
+
+        if (pathLower.find(".glb") != std::string::npos || pathLower.find(".gltf") != std::string::npos)
+        {
+            for (const auto &kw : keywords)
+            {
+                if (pathLower.find(kw) != std::string::npos)
+                {
+                    return std::string(entry.path);
+                }
+            }
+        }
+    }
+    return "";
 }
 
 #endif
