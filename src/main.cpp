@@ -166,12 +166,10 @@ int main()
         int screenW = GetScreenWidth();
         int screenH = GetScreenHeight();
 
-        // Virtual Touch Areas
         Rectangle fireBtnRect{ (float)screenW - 140, (float)screenH - 140, 110, 110 };
         Vector2 moveInput{0.0f, 0.0f};
         bool fireTriggered = false;
 
-        // Handle Multi-Touch (Mobile)
         int touchCount = GetTouchPointCount();
         bool currentRightTouchActive = false;
 
@@ -179,14 +177,12 @@ int main()
         {
             Vector2 tPos = GetTouchPosition(i);
 
-            // Check Fire Button
             if (CheckCollisionPointRec(tPos, fireBtnRect))
             {
                 fireTriggered = true;
                 continue;
             }
 
-            // Left screen: Movement D-Pad
             if (tPos.x < (float)screenW * 0.45f)
             {
                 Vector2 center{ (float)screenW * 0.18f, (float)screenH * 0.72f };
@@ -196,7 +192,6 @@ int main()
                     moveInput = Vector2Normalize(delta);
                 }
             }
-            // Right screen: Camera Yaw (Aiming)
             else if (tPos.x >= (float)screenW * 0.45f)
             {
                 currentRightTouchActive = true;
@@ -210,7 +205,6 @@ int main()
         }
         rightTouchActive = currentRightTouchActive;
 
-        // Keyboard Controls fallback
         if (IsKeyDown(KEY_W)) moveInput.y -= 1.0f;
         if (IsKeyDown(KEY_S)) moveInput.y += 1.0f;
         if (IsKeyDown(KEY_A)) moveInput.x -= 1.0f;
@@ -219,7 +213,6 @@ int main()
         if (IsKeyDown(KEY_RIGHT)) player.yaw += 2.5f * dt;
         if (IsKeyDown(KEY_SPACE)) fireTriggered = true;
 
-        // Apply Player Movement in Camera Direction
         if (Vector2Length(moveInput) > 0.1f)
         {
             Vector2 normInput = Vector2Normalize(moveInput);
@@ -233,11 +226,9 @@ int main()
             player.position = Vector3Add(player.position, Vector3Scale(dir, player.speed * dt));
         }
 
-        // Shooting
         if (fireTriggered) Shoot(player, bullets);
         if (player.shootCooldown > 0) player.shootCooldown -= dt;
 
-        // Bullets
         for (auto& bullet : bullets)
         {
             if (!bullet.alive) continue;
@@ -258,7 +249,6 @@ int main()
             }
         }
 
-        // Zombies AI
         for (auto& zombie : zombies)
         {
             if (!zombie.alive) continue;
@@ -277,12 +267,10 @@ int main()
             }
         }
 
-        // Third Person Camera Follow
         Vector3 forward = Forward(player.yaw);
         camera.position = Vector3Add(player.position, Vector3{-forward.x * 7.5f, 4.2f, -forward.z * 7.5f});
         camera.target = Vector3Add(player.position, Vector3{0, 1.2f, 0});
 
-        // Render
         BeginDrawing();
         ClearBackground(Color{105, 165, 220, 255});
 
@@ -296,19 +284,16 @@ int main()
         }
         EndMode3D();
 
-        // HUD
         DrawRectangle(20, 20, 230, 70, Fade(BLACK, 0.6f));
         DrawText("XBATTLE 3D", 35, 30, 22, WHITE);
         DrawText(TextFormat("HP: %d", (int)player.health), 35, 58, 20, (player.health > 30 ? GREEN : RED));
         DrawText(TextFormat("AMMO: %d", player.ammo), screenW - 160, 25, 22, YELLOW);
 
-        // Mobile Touch On-Screen Controls
         Vector2 leftCenter{ (float)screenW * 0.18f, (float)screenH * 0.72f };
         DrawCircleV(leftCenter, 65.0f, Fade(WHITE, 0.15f));
         DrawCircleLines(leftCenter.x, leftCenter.y, 65.0f, Fade(WHITE, 0.4f));
         DrawCircleV(Vector2Add(leftCenter, Vector2Scale(moveInput, 40.0f)), 28.0f, Fade(SKYBLUE, 0.5f));
 
-        // Fire Button
         DrawCircle(fireBtnRect.x + 55, fireBtnRect.y + 55, 50, Fade(MAROON, 0.7f));
         DrawCircleLines(fireBtnRect.x + 55, fireBtnRect.y + 55, 50, WHITE);
         DrawText("FIRE", fireBtnRect.x + 32, fireBtnRect.y + 44, 20, WHITE);
