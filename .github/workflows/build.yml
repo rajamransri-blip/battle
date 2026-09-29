@@ -72,7 +72,7 @@ jobs:
           touch assets/maps/.gitkeep
 
       # ============================================================
-      # 2. ANDROID MANIFEST (FIXED FOR MODERN ANDROID)
+      # 2. ANDROID MANIFEST (ANDROID 14/15 READY)
       # ============================================================
       - name: Create AndroidManifest.xml
         run: |
@@ -250,7 +250,7 @@ jobs:
           EOF
 
       # ============================================================
-      # 5. RAYLIB VIRTUAL PAK SYSTEM HEADER (src/pak.h)
+      # 5. SMART VIRTUAL PAK SYSTEM (src/pak.h)
       # ============================================================
       - name: Create src/pak.h
         run: |
@@ -262,6 +262,7 @@ jobs:
           #include <cstring>
           #include <vector>
           #include <string>
+          #include <algorithm>
 
           #define PAK_MAGIC "XPAK"
           #define MAX_PAK_PATH 128
@@ -311,7 +312,6 @@ jobs:
                   }
               }
 
-              // Recursion safe fallback to default raylib loader
               SetLoadFileDataCallback(nullptr);
               unsigned char *result = LoadFileData(fileName, dataSize);
               SetLoadFileDataCallback(PakLoadFileDataCallback);
@@ -372,11 +372,33 @@ jobs:
               return FileExists(fileName);
           }
 
+          // Smart Auto-Discovery: finds any .glb matching uploaded keywords
+          static std::string FindAssetMatch(const std::vector<std::string>& keywords)
+          {
+              for (const auto &entry : g_PakEntries)
+              {
+                  std::string pathLower = entry.path;
+                  for (char &c : pathLower) c = (char)::tolower(c);
+
+                  if (pathLower.find(".glb") != std::string::npos || pathLower.find(".gltf") != std::string::npos)
+                  {
+                      for (const auto &kw : keywords)
+                      {
+                          if (pathLower.find(kw) != std::string::npos)
+                          {
+                              return std::string(entry.path);
+                          }
+                      }
+                  }
+              }
+              return "";
+          }
+
           #endif
           EOF
 
       # ============================================================
-      # 6. STANDALONE RESOURCE PACKER TOOL (tools/packer.cpp)
+      # 6. RESOURCE PACKER WITH SMART AUTO-DISCOVERY (tools/packer.cpp)
       # ============================================================
       - name: Create tools/packer.cpp
         run: |
@@ -387,6 +409,7 @@ jobs:
           #include <string>
           #include <filesystem>
           #include <cstring>
+          #include <algorithm>
 
           namespace fs = std::filesystem;
 
@@ -414,6 +437,8 @@ jobs:
               std::string outputFile = (argc > 2) ? argv[2] : "game.pak";
 
               std::vector<fs::path> filePaths;
+
+              // 1. Scan assets folder
               if (fs::exists(assetsDir))
               {
                   for (const auto &entry : fs::recursive_directory_iterator(assetsDir))
@@ -429,7 +454,21 @@ jobs:
                   }
               }
 
-              std::cout << "[PACKER] Packaging " << filePaths.size() << " files into " << outputFile << "...\n";
+              // 2. Scan root directory for directly uploaded 3D models (.glb, .gltf)
+              for (const auto &entry : fs::directory_iterator("."))
+              {
+                  if (fs::is_regular_file(entry.path()))
+                  {
+                      std::string ext = entry.path().extension().string();
+                      for (char &c : ext) c = (char)::tolower(c);
+                      if (ext == ".glb" || ext == ".gltf")
+                      {
+                          filePaths.push_back(entry.path());
+                      }
+                  }
+              }
+
+              std::cout << "[PACKER] Found " << filePaths.size() << " assets to pack into " << outputFile << "\n";
 
               std::vector<PakEntry> entries;
               std::vector<std::vector<char>> fileBuffers;
@@ -446,7 +485,20 @@ jobs:
                   std::vector<char> buffer(size);
                   file.read(buffer.data(), size);
 
-                  std::string relPath = fs::relative(p, assetsDir).generic_string();
+                  std::string relPath;
+                  std::string pStr = p.generic_string();
+                  if (pStr.rfind(assetsDir + "/", 0) == 0)
+                  {
+                      relPath = fs::relative(p, assetsDir).generic_string();
+                  }
+                  else if (pStr.rfind("./", 0) == 0)
+                  {
+                      relPath = p.filename().generic_string();
+                  }
+                  else
+                  {
+                      relPath = p.generic_string();
+                  }
 
                   PakEntry entry;
                   std::memset(&entry, 0, sizeof(PakEntry));
@@ -457,6 +509,7 @@ jobs:
                   entries.push_back(entry);
                   fileBuffers.push_back(std::move(buffer));
 
+                  std::cout << "  Packed: " << relPath << " (" << size << " bytes)\n";
                   dataOffset += size;
               }
 
@@ -475,13 +528,13 @@ jobs:
                   out.write(buf.data(), buf.size());
               }
 
-              std::cout << "[PACKER] Package generated successfully (" << dataOffset << " bytes).\n";
+              std::cout << "[PACKER] game.pak created successfully (" << dataOffset << " bytes).\n";
               return 0;
           }
           EOF
 
       # ============================================================
-      # 7. COMPLETE C++ SOURCE (src/main.cpp)
+      # 7. FIXED C++ SOURCE (src/main.cpp)
       # ============================================================
       - name: Create src/main.cpp
         run: |
@@ -543,20 +596,37 @@ jobs:
 
           static void LoadSmartAssets(SmartAssets& assets)
           {
-              if (FileExistsInPak("maps/map.glb"))
+              // 1. Dynamic Map Discovery
+              std::string mapPath = FindAssetMatch({ "map", "ground", "terrain", "world", "city" });
+              if (mapPath.empty() && FileExistsInPak("maps/map.glb")) mapPath = "maps/map.glb";
+
+              if (!mapPath.empty())
               {
-                  assets.mapModel = LoadModel("maps/map.glb");
+                  assets.mapModel = LoadModel(mapPath.c_str());
                   assets.hasMap = IsModelValid(assets.mapModel);
+                  if (assets.hasMap) TraceLog(LOG_INFO, "SMART: Loaded Map -> %s", mapPath.c_str());
               }
-              if (FileExistsInPak("models/player/player.glb"))
+
+              // 2. Dynamic Player Discovery (Auto-detects mummy, pubg, player)
+              std::string playerPath = FindAssetMatch({ "mummy", "player", "pubg", "charac", "soldier", "hero" });
+              if (playerPath.empty() && FileExistsInPak("models/player/player.glb")) playerPath = "models/player/player.glb";
+
+              if (!playerPath.empty())
               {
-                  assets.playerModel = LoadModel("models/player/player.glb");
+                  assets.playerModel = LoadModel(playerPath.c_str());
                   assets.hasPlayer = IsModelValid(assets.playerModel);
+                  if (assets.hasPlayer) TraceLog(LOG_INFO, "SMART: Loaded Player Character -> %s", playerPath.c_str());
               }
-              if (FileExistsInPak("models/zombies/zombie.glb"))
+
+              // 3. Dynamic Zombie Discovery
+              std::string zombiePath = FindAssetMatch({ "zombie", "monster", "enemy", "mutant" });
+              if (zombiePath.empty() && FileExistsInPak("models/zombies/zombie.glb")) zombiePath = "models/zombies/zombie.glb";
+
+              if (!zombiePath.empty())
               {
-                  assets.zombieModel = LoadModel("models/zombies/zombie.glb");
+                  assets.zombieModel = LoadModel(zombiePath.c_str());
                   assets.hasZombie = IsModelValid(assets.zombieModel);
+                  if (assets.hasZombie) TraceLog(LOG_INFO, "SMART: Loaded Zombie Model -> %s", zombiePath.c_str());
               }
           }
 
@@ -741,6 +811,7 @@ jobs:
                   }
                   if (player.shootCooldown > 0) player.shootCooldown -= dt;
 
+                  // Update Bullets (FIXED: Loop variable z)
                   for (auto& b : bullets)
                   {
                       if (!b.alive) continue;
@@ -752,9 +823,9 @@ jobs:
                       {
                           if (z.alive && Vector3Distance(b.position, z.position) < 1.3f)
                           {
-                              zombie.health -= 50;
+                              z.health -= 50;
                               b.alive = false;
-                              if (zombie.health <= 0) zombie.alive = false;
+                              if (z.health <= 0) z.alive = false;
                               break;
                           }
                       }
@@ -868,7 +939,7 @@ jobs:
           EOF
 
       # ============================================================
-      # 9. COMMIT GENERATED FILES
+      # 9. COMMIT GENERATED ENGINE (WITH REBASE PROTECTION)
       # ============================================================
       - name: Commit generated files
         run: |
@@ -876,7 +947,8 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Initialize complete XBattle source and PAK engine [skip ci]"
+            git commit -m "Fix zombie loop variable and enable smart model packing [skip ci]"
+            git pull --rebase origin ${{ github.ref_name }} || true
             git push origin HEAD:${{ github.ref_name }}
           fi
 
@@ -898,7 +970,6 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Pre-seed Android Licenses to prevent interactive hang
       - name: Setup Android SDK & Licenses
         run: |
           export ANDROID_HOME="/usr/local/lib/android/sdk"
@@ -938,7 +1009,7 @@ jobs:
           sudo apt-get install -y -qq ninja-build
 
       # ============================================================
-      # BUILD GAME.PAK RESOURCE PACKAGE
+      # PACK GAME.PAK (INCLUDES UPLOADED PUBGM MUMMY MODEL)
       # ============================================================
       - name: Compile Packer and Build game.pak
         run: |
@@ -965,7 +1036,7 @@ jobs:
           cmake --build build/android --config Release --parallel $(nproc)
 
       # ============================================================
-      # PACKAGE & SIGN ANDROID 14/15 COMPATIBLE APK
+      # PACKAGE & SIGN ANDROID 14/15 APK
       # ============================================================
       - name: Package Compatible APK
         run: |
@@ -980,7 +1051,6 @@ jobs:
           # Mount game.pak into root assets
           cp game.pak apk/assets/game.pak
 
-          # Backward compatible loose files
           if [ -d assets ]; then
             cp -r assets/* apk/assets/ 2>/dev/null || true
           fi
