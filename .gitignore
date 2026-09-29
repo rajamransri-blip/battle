@@ -1,0 +1,14 @@
+build/
+.cxx/
+.gradle/
+local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+*.o
+*.so
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
